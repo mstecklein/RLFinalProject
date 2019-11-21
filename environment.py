@@ -118,6 +118,7 @@ class Environment_v0(gym.Env):
                 SENSOR_COVERAGES: gym.spaces.MultiBinary( (num_sensors,) + field_shape)
         })
         self._num_actions = 2*num_sensors + 1 # turn each sensor on or off, no-op
+        self.NO_OP_ACTION = self._num_actions - 1
         self.action_space = gym.spaces.Discrete(self._num_actions)
         
         
@@ -450,6 +451,13 @@ class Environment_v0(gym.Env):
         if self._viewer:
             self._viewer.close()
             self._viewer = None
+            
+            
+    def get_action_turn_on(self, sensor_number):
+        return sensor_number
+    
+    def get_action_turn_off(self, sensor_number):
+        return sensor_number + self._num_sensors
     
     
     
