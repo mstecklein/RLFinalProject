@@ -11,16 +11,17 @@ from gym.wrappers.monitoring.video_recorder import VideoRecorder
 ::: Environment-v0 :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 Problem setup:
- - Sensor positions are always the same, symmetrically placed
+ - Sensor positions are always the same, and have option to place them symmetrically
  - Source positions and transition probabilities are random
  - 3-coverage is possible for all grid squares (and therefore all sources
    can be found)
  - Problem terminates after all sources have been found, or some number of runs
 
 Action space:
- - # actions = 2 * number sensors
+ - # actions = 2 * number sensors + 1
  - first half of actions is to turn on sensors
  - second half of actions is to turn off sensors
+ - last action is a no-op
 
 Reward:
  - Reward_t = R * (# srcs located at time t) - C * (# snsrs on at t)
@@ -90,6 +91,7 @@ class Environment_v0(gym.Env):
                  sensor_cost: float = 0.1,
                  screen_width: int = 600,
                  max_allowed_steps: int = 1000,
+                 place_sensors_symmetric: bool = False,
                  debug: bool = False):
         super().__init__()
         
@@ -101,6 +103,7 @@ class Environment_v0(gym.Env):
         self._cost_per_sensor = sensor_cost
         self._screen_width = screen_width
         self._max_allowed_steps = max_allowed_steps
+        self._place_sensors_symmetric = place_sensors_symmetric
         self._debug = debug
         self._viewer= None
         self._prev_located_sources = np.zeros(self._field_shape)
@@ -112,7 +115,7 @@ class Environment_v0(gym.Env):
         self.observation_space = gym.spaces.MultiBinary(
                                     self._hidden_state[SENSOR_STATUSES].size +
                                     self._hidden_state[LOCATED_SOURCES].size)
-        self._num_actions = 2*num_sensors # turn each sensor on or off
+        self._num_actions = 2*num_sensors + 1 # turn each sensor on or off, no-op
         self.action_space = gym.spaces.Discrete(self._num_actions)
         
         
@@ -127,26 +130,56 @@ class Environment_v0(gym.Env):
                 SENSOR_COVERAGES:    [],                           # optionally observable (return in "info")
                 SENSOR_OBSERVATIONS: []                            # optionally observable (return in "info")
             }
+        while not self._ensure_sufficient_3_coverage():
+            self._init_sensors()
         self._init_sources()
-        self._init_sensors()
+        
+        
+    def _ensure_sufficient_3_coverage(self):
+        # Check sensor coverages to ensure enough grid squares are covered by at least 3 sensors
+        snsr_coverages = self._hidden_state[SENSOR_COVERAGES]
+        if len(snsr_coverages) == 0:
+            return False
+        assert len(snsr_coverages) == self._num_sensors
+        cov_cnt_map = np.zeros(self._field_shape)
+        for sensor_num in range(self._num_sensors):
+            cov_cnt_map += self._hidden_state[SENSOR_COVERAGES][sensor_num]
+        for sensor_loc in self._sensor_locs:
+            cov_cnt_map[sensor_loc] = 0
+        num_avail_spots = np.sum(cov_cnt_map >= 3)
+        return num_avail_spots >= self._num_sources
+        
+        
+    def _init_sensors(self):
+        if self._place_sensors_symmetric:
+            self._init_sensors_symmetric()
+        else:
+            self._init_sensors_random_consistent()
+    
+    
+    def _init_sensors_symmetric(self):
+        # Symmetric, hand-placed
+        assert self._field_shape == (10,10), "Symmetric sensor placement only works for fields of shape (10,10)"
+        assert self._sensor_radius >= 3, "Symmetric sensor placement only works for sensor_radius>=3"
+        pass # initialize sensors symmetrically
+        self._sensor_locs = [
+            (0,0), (1,1), (1,3), (3,1), (3,3),
+            (0,9), (1,6), (1,8), (3,6), (3,8),
+            (9,0), (6,1), (8,1), (6,3), (8,3),
+            (9,9), (6,6), (6,8), (8,6), (8,8)
+            ]
+        assert self._num_sensors == len(self._sensor_locs), "Symmetric sensor placement only works for num_sensors=20"
+        snsr_coverages = []
+        for loc in self._sensor_locs:
+            # Create coverage map: each entry is a matrix the same size of the
+            # field with 1's where the sensor covers
+            coverage = self._create_coverage(loc)
+            snsr_coverages.append(coverage)
+        self._hidden_state[SENSOR_COVERAGES] = snsr_coverages
         
     
-    def _init_sources(self):
-        # create transition probabilities
-        self._hidden_state[SOURCE_TURNON_PROBS]  = np.random.uniform(low=1./15., high=1./5., size=self._num_sources)
-        self._hidden_state[SOURCE_TURNOFF_PROBS] = np.random.uniform(low=1./ 5., high=1./1., size=self._num_sources)
-        # find locations
-        src_locs = []
-        for _ in range(self._num_sources):
-            # Find an unused location in the grid
-            loc = self._get_random_location()
-            while (loc in src_locs):
-                loc = self._get_random_location()
-            src_locs.append(loc)
-        self._hidden_state[SOURCE_LOCATIONS] = src_locs
-    
-    
-    def _init_sensors(self):
+    def _init_sensors_random_consistent(self):
+        # Asymmetric but consistent sensor placement:
         np_random, seed = seeding.np_random(123) # ensures same sensor locations
         snsr_coverages = []
         self._sensor_locs = []
@@ -162,6 +195,25 @@ class Environment_v0(gym.Env):
             coverage = self._create_coverage(loc)
             snsr_coverages.append(coverage)
         self._hidden_state[SENSOR_COVERAGES] = snsr_coverages
+        
+    
+    def _init_sources(self):
+        # create transition probabilities
+        self._hidden_state[SOURCE_TURNON_PROBS]  = np.random.uniform(low=1./15., high=1./5., size=self._num_sources)
+        self._hidden_state[SOURCE_TURNOFF_PROBS] = np.random.uniform(low=1./ 5., high=1./1., size=self._num_sources)
+        # create map of coverage, to ensure 3-coverage where sources are placed
+        cov_cnt_map = np.zeros(self._field_shape)
+        for sensor_num in range(self._num_sensors):
+            cov_cnt_map += self._hidden_state[SENSOR_COVERAGES][sensor_num]
+        # find locations
+        src_locs = []
+        for _ in range(self._num_sources):
+            # Find an unused location in the grid that has at least 3-coverage
+            loc = self._get_random_location()
+            while (loc in src_locs) or (loc in self._sensor_locs) or cov_cnt_map[loc] < 3:
+                loc = self._get_random_location()
+            src_locs.append(loc)
+        self._hidden_state[SOURCE_LOCATIONS] = src_locs
     
     
     def _create_coverage(self, location):
@@ -218,11 +270,15 @@ class Environment_v0(gym.Env):
             if self._debug:
                 self._last_action_desc = "%d: Turn ON sensor #%d" % (self._action_count, sensor_num)
                 print(self._last_action_desc)
-        else: # turn off
+        elif action < 2*self._num_sensors: # turn off
             sensor_num = action - self._num_sensors
             self._hidden_state[SENSOR_STATUSES][sensor_num] = 0
             if self._debug:
                 self._last_action_desc = "%d: Turn OFF sensor #%d" % (self._action_count, sensor_num)
+                print(self._last_action_desc)
+        else: # no-op
+            if self._debug:
+                self._last_action_desc = "%d: No-op" % self._action_count
                 print(self._last_action_desc)
         # Update source statuses
         for source_num in range(self._num_sources):
@@ -407,7 +463,7 @@ if __name__ == "__main__":
     
     seed = 987
     np.random.seed(seed)
-    env = Environment_v0(debug=True)
+    env = Environment_v0(debug=True, place_sensors_symmetric=True)
     video_recorder = VideoRecorder(env, path="/tmp/gym_env_test_seed%d.mp4"%seed)
     env.reset()
     env.render()
