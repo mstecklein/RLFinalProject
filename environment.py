@@ -45,14 +45,14 @@ POMDP state space:
  LOCATED_SOURCES        |  np.ndarray  | (field_shape,) |     yes    | Map of field, with 1's marking locations of sources that have
                         |              |                |            | been located, else 0's.
  ----------------------------------------------------------------------------------------------------------------------------------------
- SENSOR_COVERAGES       | [np.ndarray] |       --       |  optional* | Array of length num_sensors of np.ndarrays of size (field_shape,),
-                        |              |                |            | containing 1's where the sensor covers, else 0's.
+ SENSOR_COVERAGES       |  np.ndarray  | (num_sensors,  |  optional  | Matrix (np.ndarray) of size (num_sensors x (field_shape)),
+                        |              |   field_shape) |            | containing 1's where each sensor covers, else 0's.
  ----------------------------------------------------------------------------------------------------------------------------------------
  SENSOR_OBSERVATIONS    |     [{}]     |       --       |  optional* | List of sets. Each set represents an "observation" that occurred
                         |              |                |            | in the previous timestep, and contains sensor numbers of the
                         |              |                |            | sensors which observed the same source.
  ----------------------------------------------------------------------------------------------------------------------------------------
- * optionally observable state space components are return in the "info" section of the step(.) function
+ * this component is returned in the "info" section of the step(.) function
 
 """
 
@@ -112,9 +112,11 @@ class Environment_v0(gym.Env):
         self._last_reward_desc = ""
         
         self._reset_hidden_state()
-        self.observation_space = gym.spaces.MultiBinary(
-                                    self._hidden_state[SENSOR_STATUSES].size +
-                                    self._hidden_state[LOCATED_SOURCES].size)
+        self.observation_space = gym.spaces.Dict({
+                SENSOR_STATUSES : gym.spaces.MultiBinary(self._hidden_state[SENSOR_STATUSES].size),
+                LOCATED_SOURCES : gym.spaces.MultiBinary(self._hidden_state[LOCATED_SOURCES].size),
+                SENSOR_COVERAGES: gym.spaces.MultiBinary( (num_sensors,) + field_shape)
+        })
         self._num_actions = 2*num_sensors + 1 # turn each sensor on or off, no-op
         self.action_space = gym.spaces.Discrete(self._num_actions)
         
@@ -237,17 +239,17 @@ class Environment_v0(gym.Env):
     
     
     def _get_observable_state(self):
-        return np.concatenate([
-                self._hidden_state[SENSOR_STATUSES].flatten(),
-                self._hidden_state[LOCATED_SOURCES].flatten()
-            ])
+        return {
+            SENSOR_STATUSES : self._hidden_state[SENSOR_STATUSES],
+            LOCATED_SOURCES : self._hidden_state[LOCATED_SOURCES],
+            SENSOR_COVERAGES: self._hidden_state[SENSOR_COVERAGES]
+        }
     
     
-    def _get_optionally_observable_state(self):
-        oos = dict()
-        oos[SENSOR_COVERAGES] = self._hidden_state[SENSOR_COVERAGES]
-        oos[SENSOR_OBSERVATIONS] = self._hidden_state[SENSOR_OBSERVATIONS]
-        return oos
+    def _get_info_observable_state(self):
+        return {
+            SENSOR_OBSERVATIONS : self._hidden_state[SENSOR_OBSERVATIONS]
+        }
         
     
     def _create_coverage_count_map(self):
@@ -316,7 +318,7 @@ class Environment_v0(gym.Env):
         reward = self._reward_per_source * num_sources_located - self._cost_per_sensor * num_sensors_on
         num_sources_found = np.sum(self._hidden_state[LOCATED_SOURCES])
         done = (num_sources_found == self._num_sources) or (self._num_actions > self._max_allowed_steps)
-        info = self._get_optionally_observable_state()
+        info = self._get_info_observable_state()
         if self._debug:
             self._last_reward_desc = "Reward = R * # srcs located - C * # snsrs on = %.2f * %d - %.2f * %d = %.4f" \
                                     % (self._reward_per_source,num_sources_located,self._cost_per_sensor,num_sensors_on,reward)

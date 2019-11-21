@@ -9,7 +9,6 @@ class RandomAgent(Agent):
 
         self.name = "Random-Agent"
         self.num_actions = env.action_space.n
-        self.num_states = env.observation_space.shape[0]
 
     def get_name(self):
         return self.name
@@ -20,6 +19,7 @@ class RandomAgent(Agent):
     def run_episode(self):
         done = False
         rewards = []
+        env.reset()
 
         while not done:
             action = randint(0, self.num_actions - 1)
@@ -35,4 +35,4 @@ if __name__ == '__main__':
 
     for i in range(10):
         episode_rewards = agent.run_episode()
-        print('The episode had a reward of {}'.format(sum(episode_rewards)))
+        print('The episode took {} steps and had a reward of {}'.format(len(episode_rewards), sum(episode_rewards)))
