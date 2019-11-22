@@ -318,7 +318,7 @@ class Environment_v0(gym.Env):
         num_sensors_on = np.sum(self._hidden_state[SENSOR_STATUSES])
         reward = self._reward_per_source * num_sources_located - self._cost_per_sensor * num_sensors_on
         num_sources_found = np.sum(self._hidden_state[LOCATED_SOURCES])
-        done = (num_sources_found == self._num_sources) or (self._num_actions > self._max_allowed_steps)
+        done = (num_sources_found == self._num_sources) or (self._action_count >= self._max_allowed_steps)
         info = self._get_info_observable_state()
         if self._debug:
             self._last_reward_desc = "Reward = R * # srcs located - C * # snsrs on = %.2f * %d - %.2f * %d = %.4f" \
