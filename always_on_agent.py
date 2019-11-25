@@ -39,6 +39,14 @@ if __name__ == '__main__':
     env = Environment_v0()
     agent = AlwaysOnAgent(env)
 
-    for i in range(10):
+    returns = []
+    ep_lens = []
+    num_episodes = 10000
+    for i in range(num_episodes):
         episode_rewards = agent.run_episode()
-        print('The episode took {} steps and had a reward of {}'.format(len(episode_rewards), sum(episode_rewards)))
+        returns.append(sum(episode_rewards))
+        ep_lens.append(len(episode_rewards))
+        
+    print("AlwaysOnAgent, %d episodes:" % num_episodes)
+    print("Return:    mean:%.2f   std:%.2f" % (np.mean(returns), np.std(returns)))
+    print("Length:    mean:%.2f   std:%.2f" % (np.mean(ep_lens), np.std(ep_lens)))

@@ -91,11 +91,11 @@ class Environment_v0(gym.Env):
                  sensor_cost: float = 0.1,
                  screen_width: int = 600,
                  max_allowed_steps: int = 1000,
-                 place_sensors_symmetric: bool = False,
+                 place_sensors_symmetric: bool = True,
                  debug: bool = False):
         super().__init__()
         
-        self._field_shape = field_shape
+        self.field_shape = field_shape
         self._num_sensors = num_sensors
         self._num_sources = num_sources
         self._sensor_radius = sensor_radius
@@ -106,12 +106,12 @@ class Environment_v0(gym.Env):
         self._place_sensors_symmetric = place_sensors_symmetric
         self._debug = debug
         self._viewer= None
-        self._prev_located_sources = np.zeros(self._field_shape)
+        self._prev_located_sources = np.zeros(self.field_shape)
         self._action_count = 0
         self._last_action_desc = ""
         self._last_reward_desc = ""
         
-        self._reset_hidden_state()
+        self.reset_hidden_state()
         self.observation_space = gym.spaces.Dict({
                 SENSOR_STATUSES : gym.spaces.MultiBinary(self._hidden_state[SENSOR_STATUSES].size),
                 LOCATED_SOURCES : gym.spaces.MultiBinary(self._hidden_state[LOCATED_SOURCES].size),
@@ -122,14 +122,14 @@ class Environment_v0(gym.Env):
         self.action_space = gym.spaces.Discrete(self._num_actions)
         
         
-    def _reset_hidden_state(self):
+    def reset_hidden_state(self):
         self._hidden_state = {
                 SOURCE_LOCATIONS:    [],                           # not observable
                 SOURCE_STATUSES:     np.zeros(self._num_sources),  # not observable
                 SOURCE_TURNON_PROBS: None,                         # not observable
                 SOURCE_TURNOFF_PROBS:None,                         # not observable
                 SENSOR_STATUSES:     np.zeros(self._num_sensors),  # observable
-                LOCATED_SOURCES:     np.zeros(self._field_shape),  # observable
+                LOCATED_SOURCES:     np.zeros(self.field_shape),  # observable
                 SENSOR_COVERAGES:    [],                           # optionally observable (return in "info")
                 SENSOR_OBSERVATIONS: []                            # optionally observable (return in "info")
             }
@@ -144,10 +144,10 @@ class Environment_v0(gym.Env):
         if len(snsr_coverages) == 0:
             return False
         assert len(snsr_coverages) == self._num_sensors
-        cov_cnt_map = np.zeros(self._field_shape)
+        cov_cnt_map = np.zeros(self.field_shape)
         for sensor_num in range(self._num_sensors):
             cov_cnt_map += self._hidden_state[SENSOR_COVERAGES][sensor_num]
-        for sensor_loc in self._sensor_locs:
+        for sensor_loc in self.sensor_locs:
             cov_cnt_map[sensor_loc] = 0
         num_avail_spots = np.sum(cov_cnt_map >= 3)
         return num_avail_spots >= self._num_sources
@@ -162,18 +162,18 @@ class Environment_v0(gym.Env):
     
     def _init_sensors_symmetric(self):
         # Symmetric, hand-placed
-        assert self._field_shape == (10,10), "Symmetric sensor placement only works for fields of shape (10,10)"
+        assert self.field_shape == (10,10), "Symmetric sensor placement only works for fields of shape (10,10)"
         assert self._sensor_radius >= 3, "Symmetric sensor placement only works for sensor_radius>=3"
         pass # initialize sensors symmetrically
-        self._sensor_locs = [
+        self.sensor_locs = [
             (0,0), (1,1), (1,3), (3,1), (3,3),
             (0,9), (1,6), (1,8), (3,6), (3,8),
             (9,0), (6,1), (8,1), (6,3), (8,3),
             (9,9), (6,6), (6,8), (8,6), (8,8)
             ]
-        assert self._num_sensors == len(self._sensor_locs), "Symmetric sensor placement only works for num_sensors=20"
+        assert self._num_sensors == len(self.sensor_locs), "Symmetric sensor placement only works for num_sensors=20"
         snsr_coverages = []
-        for loc in self._sensor_locs:
+        for loc in self.sensor_locs:
             # Create coverage map: each entry is a matrix the same size of the
             # field with 1's where the sensor covers
             coverage = self._create_coverage(loc)
@@ -185,14 +185,14 @@ class Environment_v0(gym.Env):
         # Asymmetric but consistent sensor placement:
         np_random, seed = seeding.np_random(123) # ensures same sensor locations
         snsr_coverages = []
-        self._sensor_locs = []
+        self.sensor_locs = []
         for _ in range(self._num_sensors):
             # Find an unused location in the grid
             loc = self._get_random_location(np_random)
-            while (loc in self._sensor_locs) or \
+            while (loc in self.sensor_locs) or \
                   (loc in self._hidden_state[SOURCE_LOCATIONS]):
                 loc = self._get_random_location(np_random)
-            self._sensor_locs.append(loc)
+            self.sensor_locs.append(loc)
             # Create coverage map: each entry is a matrix the same size of the
             # field with 1's where the sensor covers
             coverage = self._create_coverage(loc)
@@ -202,10 +202,10 @@ class Environment_v0(gym.Env):
     
     def _init_sources(self):
         # create transition probabilities
-        self._hidden_state[SOURCE_TURNON_PROBS]  = np.random.uniform(low=1./15., high=1./5., size=self._num_sources)
+        self._hidden_state[SOURCE_TURNON_PROBS]  = np.random.uniform(low=1./10., high=1./5., size=self._num_sources)
         self._hidden_state[SOURCE_TURNOFF_PROBS] = np.random.uniform(low=1./ 5., high=1./1., size=self._num_sources)
         # create map of coverage, to ensure 3-coverage where sources are placed
-        cov_cnt_map = np.zeros(self._field_shape)
+        cov_cnt_map = np.zeros(self.field_shape)
         for sensor_num in range(self._num_sensors):
             cov_cnt_map += self._hidden_state[SENSOR_COVERAGES][sensor_num]
         # find locations
@@ -213,16 +213,16 @@ class Environment_v0(gym.Env):
         for _ in range(self._num_sources):
             # Find an unused location in the grid that has at least 3-coverage
             loc = self._get_random_location()
-            while (loc in src_locs) or (loc in self._sensor_locs) or cov_cnt_map[loc] < 3:
+            while (loc in src_locs) or (loc in self.sensor_locs) or cov_cnt_map[loc] < 3:
                 loc = self._get_random_location()
             src_locs.append(loc)
         self._hidden_state[SOURCE_LOCATIONS] = src_locs
     
     
     def _create_coverage(self, location):
-        coverage = np.zeros(self._field_shape)
-        for r in range(self._field_shape[0]):
-            for c in range(self._field_shape[1]):
+        coverage = np.zeros(self.field_shape)
+        for r in range(self.field_shape[0]):
+            for c in range(self.field_shape[1]):
                 dist = np.sqrt((r - location[0])**2 + (c - location[1])**2)
                 if dist <= self._sensor_radius:
                     coverage[r,c] = 1
@@ -231,11 +231,11 @@ class Environment_v0(gym.Env):
     
     def _get_random_location(self, np_random_generator=None):
         if np_random_generator is None:
-            r = np.random.randint(self._field_shape[0])
-            c = np.random.randint(self._field_shape[1])
+            r = np.random.randint(self.field_shape[0])
+            c = np.random.randint(self.field_shape[1])
         else:
-            r = np_random_generator.randint(self._field_shape[0])
-            c = np_random_generator.randint(self._field_shape[1])
+            r = np_random_generator.randint(self.field_shape[0])
+            c = np_random_generator.randint(self.field_shape[1])
         return (r,c)
     
     
@@ -254,7 +254,7 @@ class Environment_v0(gym.Env):
         
     
     def _create_coverage_count_map(self):
-        map = np.zeros(self._field_shape)
+        map = np.zeros(self.field_shape)
         for sensor_num in range(self._num_sensors):
             if self._hidden_state[SENSOR_STATUSES][sensor_num] == 1: # is on
                 map += self._hidden_state[SENSOR_COVERAGES][sensor_num]
@@ -284,13 +284,7 @@ class Environment_v0(gym.Env):
                 self._last_action_desc = "%d: No-op" % self._action_count
                 print(self._last_action_desc)
         # Update source statuses
-        for source_num in range(self._num_sources):
-            if self._hidden_state[SOURCE_STATUSES][source_num] == 1: # is on
-                if np.random.rand() < self._hidden_state[SOURCE_TURNOFF_PROBS][source_num]:
-                    self._hidden_state[SOURCE_STATUSES][source_num] = 0 # turn off
-            else: # is off
-                if np.random.rand() < self._hidden_state[SOURCE_TURNON_PROBS][source_num]:
-                    self._hidden_state[SOURCE_STATUSES][source_num] = 1 # turn on
+        self.update_source_statuses()
         # Update sensor observations and located sources
         self._hidden_state[SENSOR_OBSERVATIONS] = []
         num_sources_located = 0
@@ -325,11 +319,21 @@ class Environment_v0(gym.Env):
                                     % (self._reward_per_source,num_sources_located,self._cost_per_sensor,num_sensors_on,reward)
             print("\t" + self._last_reward_desc)
         return self._get_observable_state(), reward, done, info
+    
+    
+    def update_source_statuses(self):
+        for source_num in range(self._num_sources):
+            if self._hidden_state[SOURCE_STATUSES][source_num] == 1: # is on
+                if np.random.rand() < self._hidden_state[SOURCE_TURNOFF_PROBS][source_num]:
+                    self._hidden_state[SOURCE_STATUSES][source_num] = 0 # turn off
+            else: # is off
+                if np.random.rand() < self._hidden_state[SOURCE_TURNON_PROBS][source_num]:
+                    self._hidden_state[SOURCE_STATUSES][source_num] = 1 # turn on
         
         
     def reset(self):
         # Reset the state of the environment to an initial state
-        self._reset_hidden_state()
+        self.reset_hidden_state()
         self._action_count = 0
         return self._get_observable_state()
         
@@ -337,17 +341,17 @@ class Environment_v0(gym.Env):
     def render(self, mode='human', close=False):
         # Render the environment to the screen
         screen_width = self._screen_width
-        screen_height = screen_width * self._field_shape[0] / self._field_shape[1]
-        grid_height = screen_height / self._field_shape[0]
-        grid_width  = screen_width  / self._field_shape[1]
+        screen_height = screen_width * self.field_shape[0] / self.field_shape[1]
+        grid_height = screen_height / self.field_shape[0]
+        grid_width  = screen_width  / self.field_shape[1]
         # Initialization of rendering
         if self._viewer is None:
                 self._viewer = rendering.Viewer(screen_width, screen_height)
                 # grid squares
                 self._grid_squares = []
-                for row in range(self._field_shape[0]):
+                for row in range(self.field_shape[0]):
                     grid_squares_row = []
-                    for col in range(self._field_shape[1]):
+                    for col in range(self.field_shape[1]):
                         l,r,t,b = 0, grid_width, 0, grid_height
                         grid_square = rendering.FilledPolygon([(l,b), (l,t), (r,t), (r,b)])
                         grid_square.set_color(*GRID_SQR_DEFAULT_COLOR)
@@ -357,17 +361,17 @@ class Environment_v0(gym.Env):
                         self._viewer.add_geom(grid_square)
                     self._grid_squares.append(grid_squares_row)
                 # grid lines
-                for r in range(1, self._field_shape[0]):
+                for r in range(1, self.field_shape[0]):
                     line = rendering.Line((0.,r*grid_height), (screen_width,r*grid_height))
                     line.set_color(*GRID_LINE_COLOR)
                     self._viewer.add_geom(line)
-                for c in range(1, self._field_shape[1]):
+                for c in range(1, self.field_shape[1]):
                     line = rendering.Line((c*grid_width,0.), (c*grid_width,screen_width))
                     line.set_color(*GRID_LINE_COLOR)
                     self._viewer.add_geom(line)
                 # sensors
                 self._sensor_geoms = []
-                for loc in self._sensor_locs:
+                for loc in self.sensor_locs:
                     dot = rendering.make_circle(radius=min(grid_height,grid_width)/4)
                     dot.set_color(*SENSOR_COLOR_OFF)
                     screen_loc = ((loc[0]+.5)*grid_height, (loc[1]+.5)*grid_width)
@@ -376,8 +380,8 @@ class Environment_v0(gym.Env):
                     self._viewer.add_geom(dot)
         # Update grid square colors
         coverage_cnt_map = self._create_coverage_count_map()
-        for row in range(self._field_shape[0]):
-            for col in range(self._field_shape[1]):
+        for row in range(self.field_shape[0]):
+            for col in range(self.field_shape[1]):
                 if coverage_cnt_map[row,col] >= 3:
                     self._grid_squares[row][col].set_color(*SENSOR_3_COV_COLOR)
                 elif coverage_cnt_map[row,col] >=1:
@@ -391,8 +395,8 @@ class Environment_v0(gym.Env):
             else: # off
                 geom.set_color(*SENSOR_COLOR_OFF)
         # Add newly discovered sources
-        for row in range(self._field_shape[0]):
-            for col in range(self._field_shape[1]):
+        for row in range(self.field_shape[0]):
+            for col in range(self.field_shape[1]):
                 if self._hidden_state[LOCATED_SOURCES][row,col] == 1 and \
                    self._prev_located_sources[row,col] == 0:
                     dot = rendering.make_circle(radius=min(grid_height,grid_width)/4, filled=True)
@@ -412,8 +416,8 @@ class Environment_v0(gym.Env):
                                                      x=0, y=0,
                                                      font_size=8))
             # coverage count map
-            for row in range(self._field_shape[0]):
-                for col in range(self._field_shape[1]):
+            for row in range(self.field_shape[0]):
+                for col in range(self.field_shape[1]):
                     text = self._make_text(str(int(coverage_cnt_map[row,col])),
                                            x=row*grid_height, y=col*grid_width, font_size=8, alpha=.5)
                     self._viewer.add_onetime(text)
@@ -459,6 +463,66 @@ class Environment_v0(gym.Env):
     def get_action_turn_off(self, sensor_number):
         return sensor_number + self._num_sensors
     
+    def get_action_info(self, action):
+        # Returns: sensor #, turn on not off
+        if action < self._num_sensors: # turn on
+            return action, True
+        elif action < 2*self._num_sensors: # turn off
+            return action - self._num_sensors, False
+        elif action == self.NO_OP_ACTION:
+            return -1, True
+        else:
+            return -1, False
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+SOURCE_TURNOFF_DETERMINISTIC = "sourceturnoffdeterministic"
+
+class Environment_v1(Environment_v0):
+        
+    def reset_hidden_state(self):
+        super().reset_hidden_state()
+        del self._hidden_state[SOURCE_TURNOFF_PROBS]
+        self._hidden_state[SOURCE_TURNOFF_DETERMINISTIC] = 4
+        self._sensor_on_countdown = dict()
+        
+    def update_source_statuses(self):
+        for source_num in range(self._num_sources):
+            if self._hidden_state[SOURCE_STATUSES][source_num] == 1: # is on
+                self._sensor_on_countdown[source_num] -= 1
+                if self._sensor_on_countdown[source_num] == 0:
+                    del self._sensor_on_countdown[source_num]
+                    self._hidden_state[SOURCE_STATUSES][source_num] = 0 # turn off
+            else: # is off
+                if np.random.rand() < self._hidden_state[SOURCE_TURNON_PROBS][source_num]:
+                    self._hidden_state[SOURCE_STATUSES][source_num] = 1 # turn on
+                    self._sensor_on_countdown[source_num] = self._hidden_state[SOURCE_TURNOFF_DETERMINISTIC]
+        
+
+
+
+
+
+
+
+
+
+
+    
     
     
     
@@ -473,7 +537,7 @@ if __name__ == "__main__":
     
     seed = 987
     np.random.seed(seed)
-    env = Environment_v0(debug=True, place_sensors_symmetric=True)
+    env = Environment_v1(debug=True, place_sensors_symmetric=True)
     video_recorder = VideoRecorder(env, path="/tmp/gym_env_test_seed%d.mp4"%seed)
     env.reset()
     env.render()
