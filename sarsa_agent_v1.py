@@ -1,28 +1,30 @@
 import numpy as np
 import gym
-import torch
-import torch.optim as optim
-from torch import nn
-from environment import Environment_v0, SENSOR_STATUSES, LOCATED_SOURCES, SENSOR_COVERAGES
+from environment import Environment_v0, SENSOR_STATUSES, LOCATED_SOURCES
 from agent import Agent
 
+'''
+SarsaAgentV1 differs from SarsaAgentV0 by taking the located sources into consideration
+'''
 
-class SarsaAgent(Agent):
+
+class SarsaAgentV1(Agent):
 
     def __init__(
             self,
             env: gym.Env,
             gamma: float = 0.9,    # Discount factor
             lam: float = 0.01,     # Decay Rate
-            alpha : float = 0.01,  # Step size
+            alpha: float = 0.01,  # Step size
             epsilon: float = 0.,   # Epsilon greedy param
     ):
-        super(SarsaAgent, self).__init__(env)
+        super(SarsaAgentV1, self).__init__(env)
 
         self.env = env
         self.num_actions = env.action_space.n
         self.num_sensors = env._num_sensors
-        self.w = np.zeros(self.num_sensors)
+        self.field_size = env.field_size
+        self.w = np.zeros(self.num_sensors + self.field_size)
         self.gamma = gamma
         self.lam = lam
         self.alpha = alpha
@@ -31,36 +33,44 @@ class SarsaAgent(Agent):
     def train(self, num_episodes: int):
 
         # Pass in sensors on/off only for now
-        w = np.zeros(self.num_sensors)
+        w = np.zeros(self.num_sensors + self.field_size)
 
         for episode in range(num_episodes):
             if episode % 100 == 0:
                 print('Episode #{}'.format(episode))
 
             state = env.reset()
-            z = np.zeros(self.num_sensors)
+            z = np.zeros(self.num_sensors + self.field_size)
             action = self.get_action(w, state, self.epsilon)
 
             while True:
                 next_state, reward, done, _ = env.step(action)
                 # env.render()
-                sensor_state = state[SENSOR_STATUSES]
-                delta = reward - np.dot(w, sensor_state)
-                z += sensor_state
+                s = self._get_feature_vector(state)
+                delta = reward - np.dot(w, s)
+                z += s
 
                 if done:
                     w += self.alpha * delta * z
                     break
 
-                next_action = self.get_action(w, next_state, self.epsilon)
-                next_sensor_state = next_state[SENSOR_STATUSES]
-                delta += self.gamma * np.dot(w, next_sensor_state)
+                next_s = self._get_feature_vector(next_state)
+                delta += self.gamma * np.dot(w, next_s)
                 w += self.alpha * delta * z
                 z = self.gamma * self.lam * z
                 state = next_state
+                next_action = self.get_action(w, next_state, self.epsilon)
                 action = next_action
 
         self.w = w
+
+    def _get_feature_vector(
+            self,
+            state: dict
+    ) -> np.array:
+        sensor_state = state[SENSOR_STATUSES]
+        located_state = state[LOCATED_SOURCES].flatten()
+        return np.append(sensor_state, located_state)
 
     # E-greedy
     def get_action(
@@ -73,8 +83,8 @@ class SarsaAgent(Agent):
         if np.random.rand() < self.epsilon:
             return np.random.randint(0, self.num_actions)
 
-        s = state[SENSOR_STATUSES]
-        all_actions = self.get_all_valid_actions(s)
+        all_actions = self._get_all_valid_actions(state[SENSOR_STATUSES])
+        s = self._get_feature_vector(state)
         all_future_states = []
         for action in all_actions:
             cp = np.copy(s)
@@ -92,7 +102,7 @@ class SarsaAgent(Agent):
         action_idx = np.argmax(Q)
         return all_actions[action_idx]
 
-    def get_all_valid_actions(
+    def _get_all_valid_actions(
             self,
             s: np.array,
     ) -> np.array:
@@ -115,6 +125,7 @@ class SarsaAgent(Agent):
         state = self.env.reset()
         done = False
         while not done:
+            # Use a greedy policy with the values learnt from training
             a = self.get_action(self.w, state, 0.)
             next_state, reward, done, _ = self.env.step(a)
             rewards.append(reward)
@@ -125,7 +136,7 @@ class SarsaAgent(Agent):
 
 if __name__ == '__main__':
     env = Environment_v0()
-    agent = SarsaAgent(env)
+    agent = SarsaAgentV1(env, epsilon=0.1)
     agent.train(1000)
 
     for i in range(10):
