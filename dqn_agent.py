@@ -26,6 +26,7 @@ class DQNAgent(Agent):
                  minibatch_size: int = 32,
                  max_mem_len: int = 100000,
                  num_training_episodes: int = 1000,
+                 skip_validation:bool = False,
                  debug:bool = False):
         super().__init__(env)
         self._gamma = gamma
@@ -37,6 +38,7 @@ class DQNAgent(Agent):
         self._minibatch_size = minibatch_size
         self._max_mem_len = max_mem_len
         self._num_training_episodes = num_training_episodes
+        self._skip_validation = skip_validation
         self._debug = debug
         self.episode_num = 0
     
@@ -49,7 +51,7 @@ class DQNAgent(Agent):
         self.load()
         rewards = []
         raw_state = self.env.reset()
-        self.summarize_history(raw_state)
+        state = self.summarize_history(raw_state)
         done = False
         while not done:
             a = np.argmax(self.Q_valid_only(state))
@@ -61,9 +63,9 @@ class DQNAgent(Agent):
     
     
     def train(self):
-        save_freq = 10
+        save_freq = 1
         if self._debug:
-            debug_update_freq = 10
+            debug_update_freq = 1
             debug_ep_cnt = 0
             debug_sum_r = 0.
             debug_sum_steps = 0
@@ -77,7 +79,7 @@ class DQNAgent(Agent):
             done = False
             while not done:
                 if np.random.rand() < self.epsilon:
-                    a = np.random.randint(self.env.action_space.n)
+                    a = self.get_epsilon_action(state)
                 else:
                     a = np.argmax(self.Q_valid_only(state))
                 raw_next_state, R, done, info = self.env.step(a)
@@ -87,15 +89,13 @@ class DQNAgent(Agent):
                 if len(replay_memory) >= self._minibatch_size:
                     sample_idxs = np.random.randint(len(replay_memory), size=self._minibatch_size)
                     for sample_idx in sample_idxs:
-                        s, _, R_r, s1, done_r = replay_memory[sample_idx]
-                        Q_all_actions = self.Q(s)
+                        s, a_r, R_r, s1, done_r = replay_memory[sample_idx]
+                        Q_all_actions = self.Q_valid_only(s1)
                         if done_r:
                             target = R_r
                         else:
                             target = R_r + self._gamma * np.max(Q_all_actions)
-                        target_all_actions = self.Q(s)
-                        target_all_actions[a] = target
-                        self.update(s, target_all_actions)
+                        self.update(s, target, a_r)
                 state = next_state
             self.epsilon *= self._epsilon_decay
             if self.epsilon < self._min_epsilon: self.epsilon = self._min_epsilon
@@ -108,13 +108,19 @@ class DQNAgent(Agent):
                             (self.episode_num, debug_sum_r/debug_ep_cnt, debug_sum_steps/debug_ep_cnt, time.time()-debug_start_t, self.epsilon))
                     debug_ep_cnt = 0; debug_sum_r = 0.; debug_sum_steps = 0; debug_start_t = time.time()
             self.episode_num += 1
-                
+    
+    
+    def get_epsilon_action(self, state):
+        return np.random.randint(self.env.action_space.n)
+    
                 
     def get_model_filename(self):
         return self._save_path + self._name + ".model"
     
     
     def Q_valid_only(self, s):
+        if self._skip_validation:
+            return self.Q(s)
         all_actions = self.Q(s)
         num_sensors = len(s[SENSOR_STATUSES])
         for snsr_num in range(num_sensors):
@@ -130,7 +136,7 @@ class DQNAgent(Agent):
         raise NotImplementedError()
     
     
-    def update(self, state, target):
+    def update(self, state, target, action):
         # Updates Q function given the target
         raise NotImplementedError()
     
@@ -216,9 +222,11 @@ class SimpleDQNAgent(DQNAgent):
         ))
     
     
-    def update(self, state, target):
+    def update(self, state, target, action):
         self.optimizer.zero_grad()
-        target_tnsr = torch.Tensor([target]).squeeze()
+        target_all_actions = self.Q(state)
+        target_all_actions[action] = target
+        target_tnsr = torch.Tensor([target_all_actions]).squeeze()
         predicted_tnsr = self.model(torch.FloatTensor(self._flatten_state(state)))
         loss = self.criterion(predicted_tnsr, target_tnsr)
         loss.backward()
