@@ -1,10 +1,11 @@
+import gym
 from agent import Agent
 from environment import Environment_v0
 from random import randint
 
 
 class RandomAgent(Agent):
-    def __init__(self, env):
+    def __init__(self, env: gym.Env):
         super(RandomAgent, self).__init__(env)
 
         self.name = "Random-Agent"
@@ -32,6 +33,7 @@ class RandomAgent(Agent):
 if __name__ == '__main__':
     env = Environment_v0()
     agent = RandomAgent(env)
+    print(env.action_space.n)
 
     for i in range(10):
         episode_rewards = agent.run_episode()

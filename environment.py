@@ -110,7 +110,6 @@ class Environment_v0(gym.Env):
         self._action_count = 0
         self._last_action_desc = ""
         self._last_reward_desc = ""
-        
         self.reset_hidden_state()
         self.observation_space = gym.spaces.Dict({
                 SENSOR_STATUSES : gym.spaces.MultiBinary(self._hidden_state[SENSOR_STATUSES].size),
@@ -120,6 +119,7 @@ class Environment_v0(gym.Env):
         self._num_actions = 2*num_sensors + 1 # turn each sensor on or off, no-op
         self.NO_OP_ACTION = self._num_actions - 1
         self.action_space = gym.spaces.Discrete(self._num_actions)
+        self.field_size = len(np.zeros(self._field_shape).flatten())
         
         
     def reset_hidden_state(self):
