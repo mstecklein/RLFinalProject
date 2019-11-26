@@ -36,12 +36,12 @@ class AlwaysOnAgent(Agent):
     
 
 if __name__ == '__main__':
-    env = Environment_v0()
+    env = Environment_v1()
     agent = AlwaysOnAgent(env)
 
     returns = []
     ep_lens = []
-    num_episodes = 10000
+    num_episodes = 1000
     for i in range(num_episodes):
         episode_rewards = agent.run_episode()
         returns.append(sum(episode_rewards))

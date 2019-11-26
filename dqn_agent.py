@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.optim as optim
+from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 
 
@@ -53,18 +54,26 @@ class DQNAgent(Agent):
         raw_state = self.env.reset()
         state = self.summarize_history(raw_state)
         done = False
+        if self._debug:
+            video_recorder = VideoRecorder(self.env, path="/tmp/gym_%s_run.mp4"%self.get_name())
+            video_recorder.capture_frame()
         while not done:
-            a = np.argmax(self.Q_valid_only(state))
+            Q_vals = self.Q_valid_only(state)
+            a = np.argmax(Q_vals)
             raw_next_state, R, done, info = self.env.step(a)
             next_state = self.summarize_history(raw_next_state, info)
             rewards.append(R)
             state = next_state
+            if self._debug:
+                video_recorder.capture_frame()
+        if self._debug:
+            video_recorder.close()
         return rewards
     
     
-    def train(self):
+    def train(self, printout_statuses=True):
         save_freq = 1
-        if self._debug:
+        if printout_statuses:
             debug_update_freq = 1
             debug_ep_cnt = 0
             debug_sum_r = 0.
@@ -73,7 +82,7 @@ class DQNAgent(Agent):
             debug_start_t = time.time()
         replay_memory = deque(maxlen=self._max_mem_len)
         self.load()
-        for _ in range(self._num_training_episodes):
+        while self.episode_num < self._num_training_episodes:
             raw_state = self.env.reset()
             state = self.summarize_history(raw_state)
             done = False
@@ -85,7 +94,7 @@ class DQNAgent(Agent):
                 raw_next_state, R, done, info = self.env.step(a)
                 next_state = self.summarize_history(raw_next_state, info)
                 replay_memory.append((state, a, R, next_state, done))
-                if self._debug: debug_sum_steps += 1; debug_sum_r += R
+                if printout_statuses: debug_sum_steps += 1; debug_sum_r += R
                 if len(replay_memory) >= self._minibatch_size:
                     sample_idxs = np.random.randint(len(replay_memory), size=self._minibatch_size)
                     for sample_idx in sample_idxs:
@@ -101,7 +110,7 @@ class DQNAgent(Agent):
             if self.epsilon < self._min_epsilon: self.epsilon = self._min_epsilon
             if self.episode_num % save_freq == 0:
                 self.save()
-            if self._debug:
+            if printout_statuses:
                 debug_ep_cnt += 1
                 if self.episode_num % debug_update_freq == 0:
                     print("Training episode number %d.  Avg. reward: %.2f.  Avg. # steps: %.2f.  Time since last update: %.2f  Epsilon: %.2f" % \

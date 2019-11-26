@@ -90,7 +90,7 @@ class Environment_v0(gym.Env):
                  source_reward: float = 10.0,
                  sensor_cost: float = 0.1,
                  screen_width: int = 600,
-                 max_allowed_steps: int = 1000,
+                 max_allowed_steps: int = 100,
                  place_sensors_symmetric: bool = True,
                  debug: bool = False):
         super().__init__()
@@ -119,7 +119,7 @@ class Environment_v0(gym.Env):
         self._num_actions = 2*num_sensors + 1 # turn each sensor on or off, no-op
         self.NO_OP_ACTION = self._num_actions - 1
         self.action_space = gym.spaces.Discrete(self._num_actions)
-        self.field_size = len(np.zeros(self._field_shape).flatten())
+        self.field_size = len(np.zeros(self.field_shape).flatten())
         
         
     def reset_hidden_state(self):
@@ -312,7 +312,7 @@ class Environment_v0(gym.Env):
         num_sensors_on = np.sum(self._hidden_state[SENSOR_STATUSES])
         reward = self._reward_per_source * num_sources_located - self._cost_per_sensor * num_sensors_on
         num_sources_found = np.sum(self._hidden_state[LOCATED_SOURCES])
-        done = (num_sources_found == self._num_sources) or (self._action_count >= self._max_allowed_steps)
+        done = (self._action_count >= self._max_allowed_steps)
         info = self._get_info_observable_state()
         if self._debug:
             self._last_reward_desc = "Reward = R * # srcs located - C * # snsrs on = %.2f * %d - %.2f * %d = %.4f" \
