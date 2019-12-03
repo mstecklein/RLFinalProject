@@ -1,5 +1,5 @@
 from agent import Agent
-from environment import Environment_v0, SENSOR_STATUSES, LOCATED_SOURCES, SENSOR_COVERAGES
+from environment import Environment_v0, Environment_v1, SENSOR_STATUSES, LOCATED_SOURCES, SENSOR_COVERAGES
 from collections import deque
 import gym
 import numpy as np
@@ -7,6 +7,7 @@ import torch
 from torch import nn
 import torch.optim as optim
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
+from handcrafted_features import  Q_HandCraftedFeatureVector
 
 
 
@@ -72,9 +73,10 @@ class DQNAgent(Agent):
     
     
     def train(self, printout_statuses=True):
-        save_freq = 1
+        save_freq = 10
+        printout_statuses |= self._debug
         if printout_statuses:
-            debug_update_freq = 1
+            debug_update_freq = save_freq
             debug_ep_cnt = 0
             debug_sum_r = 0.
             debug_sum_steps = 0
@@ -195,22 +197,6 @@ class SimpleDQNAgent(DQNAgent):
                     nn.ReLU(),
                     nn.Linear(100, 100),
                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
-#                     nn.Linear(100, 100),
-#                     nn.ReLU(),
                     nn.Linear(100, self.env.action_space.n)) 
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.model.parameters(),
@@ -265,6 +251,65 @@ class SimpleDQNAgent(DQNAgent):
     def summarize_history(self, raw_state, info=None):
         del raw_state[SENSOR_COVERAGES]
         return raw_state
+    
+    
+    
+    
+    
+    
+
+
+
+
+
+
+
+class HandCraftedDQNAgent(DQNAgent):
+    
+    def __init__(self, env, Qfunc: Q_HandCraftedFeatureVector, **args):
+        args["name"] = "HandCraftedDQN"
+        super().__init__(env, **args)
+        self.Qfunc = Qfunc
+    
+    
+    def Q(self, s):
+        # Returns actions values for each action
+        return self.Qfunc.get_all_action_values(s)
+    
+    
+    def update(self, state, target, action):
+        # Updates Q function given the target
+        self.Qfunc.update(state, target, action)
+    
+    
+    def save(self):
+        # Saves Q function state
+        torch.save({
+            'episode_num' : self.episode_num,
+            'model_state_dict' : self.Qfunc.model.state_dict(),
+            'optimizer_state_dict' : self.Qfunc.optimizer.state_dict(),
+            'epsilon' : self.epsilon
+        }, self.get_model_filename())
+        if self._debug:
+            print("Saved model state dict:", self.Qfunc.model.state_dict())
+    
+    
+    def load(self):
+        # Loads Q function state
+        try:
+            checkpoint = torch.load(self.get_model_filename())
+            self.episode_num = checkpoint['episode_num']
+            self.Qfunc.model.load_state_dict(checkpoint['model_state_dict'])
+            self.Qfunc.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.epsilon = checkpoint['epsilon']
+        except FileNotFoundError:
+            pass
+    
+    
+    def summarize_history(self, raw_state, info=None):
+        # Given the raw state from the environment and the info dictionary,
+        # summarize the history of the current state with some heuristic.
+        return self.Qfunc.parse_new_state_info(raw_state, info)
 
 
 
@@ -279,4 +324,10 @@ class SimpleDQNAgent(DQNAgent):
 
 
 if __name__ == "__main__":
-    SimpleDQNAgent(Environment_v0(max_allowed_steps=100), debug=True).train()
+    env = Environment_v1()
+    agent = HandCraftedDQNAgent(env, Q_HandCraftedFeatureVector(env),
+                        num_training_episodes=2000, debug=True)
+#     agent.train(1000)
+    for _ in range(10):
+        rs = agent.run_episode()
+        print("return: ", sum(rs))

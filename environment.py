@@ -106,7 +106,6 @@ class Environment_v0(gym.Env):
         self._place_sensors_symmetric = place_sensors_symmetric
         self._debug = debug
         self._viewer= None
-        self._prev_located_sources = np.zeros(self.field_shape)
         self._action_count = 0
         self._last_action_desc = ""
         self._last_reward_desc = ""
@@ -334,6 +333,7 @@ class Environment_v0(gym.Env):
     def reset(self):
         # Reset the state of the environment to an initial state
         self.reset_hidden_state()
+        self._reset_rendering()
         self._action_count = 0
         return self._get_observable_state()
         
@@ -433,6 +433,13 @@ class Environment_v0(gym.Env):
                 self._viewer.add_onetime(dot)
         # Return rendering
         return self._viewer.render(return_rgb_array = mode=='rgb_array')
+    
+    
+    def _reset_rendering(self):
+        self._prev_located_sources = np.zeros(self.field_shape)
+        if not self._viewer is None:
+            self._viewer.close()
+        self._viewer = None
     
     
     def _make_text(self, text, x=0, y=0, font_size=36, \

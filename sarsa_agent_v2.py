@@ -188,13 +188,13 @@ class SarsaAgentV2(Agent):
 if __name__ == '__main__':
     env = Environment_v1(debug=False)
     agent = SarsaAgentV2(env, HandCraftedFeatureVector(env), debug=True)#, epsilon=.5, epsilon_decay=1.)
-    #agent.train(5000)
+    agent.train(20000)
  
     env._debug = False
     returns = []
     num_eps = 100
     for i in range(num_eps):
-        ep_rewards = agent.run_episode(True)
+        ep_rewards = agent.run_episode(False)
         print("TOTAL:", sum(ep_rewards))
         returns.append(sum(ep_rewards))
     print("SarsaAgentV2, %d episodes:" % num_eps)

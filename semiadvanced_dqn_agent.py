@@ -17,11 +17,16 @@ import numpy as np
         3. whether that square will be 3-covered (0/1)
         4. # of 1-observations in that square
         5. # of 3-observations in that square
-        6. whether a source has been found or a sensor exists in that square (0/1)
+        6. whether a source has been found or a sensor exists in that square (0/1) (-->this won't do anything with a linear model)
         7. # of sensors on
-        8. time-discounted observation history of that square
+        8. time-discounted observation history of that square (-->this won't do anything with a linear model)
         9. #8 x #2
        10. #8 x #3
+       (Other ideas:
+           - # of sources found-->this won't do anything with a linear model
+           - #6 x #2
+           - #6 x #3
+        )
         
     The linear models will be combined by a summation, then added with a weight*num_sensors_on
     to produce an output action-value, Q(s,a).
@@ -62,7 +67,7 @@ class SemiAdvancedDQNAgent(DQNAgent):
         super().__init__(env, **args)
         self.model = SmallAggregatedModel(self._get_feat_mat_shape())
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.0001, betas=(0.9, 0.999))
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001, betas=(0.9, 0.999))
         
         self._X_1_on = np.zeros(self._get_feat_mat_shape())
         self._X_no_change = np.zeros(self._get_feat_mat_shape())
@@ -126,9 +131,9 @@ class SemiAdvancedDQNAgent(DQNAgent):
         self._X_1_off[:,:,idx] = s_summarized["sourcesensorlocs"]
         idx += 1
         #  7. # of sensors on
-        self._X_1_on[:,:,idx] = s_summarized["numsensorson"]
+        self._X_1_on[:,:,idx] = min(s_summarized["numsensorson"] + 1, self.env._num_sensors)
         self._X_no_change[:,:,idx] = s_summarized["numsensorson"]
-        self._X_1_off[:,:,idx] = s_summarized["numsensorson"]
+        self._X_1_off[:,:,idx] = max(s_summarized["numsensorson"] - 1, 0)
         idx += 1
         #  8. time-discounted observation history of that square
         self._X_1_on[:,:,idx] = s_summarized["timediscountedobshistory"]
@@ -253,11 +258,15 @@ class SemiAdvancedDQNAgent(DQNAgent):
 
 
 if __name__ == "__main__":
-    DEBUG = False
-    env = Environment_v1(debug=DEBUG)
-    agent = SemiAdvancedDQNAgent(env, epsilon_decay=0.99, debug=DEBUG)
+    env = Environment_v1(debug=False)
+    agent = SemiAdvancedDQNAgent(env, debug=True,
+                                epsilon_decay=.99,
+#                                 epsilon=0.,
+#                                 min_epsilon=0.
+                                )
     agent.train()
     print("Finished training.")
+    agent._debug = False
 
     returns = []
     ep_lens = []
@@ -265,7 +274,7 @@ if __name__ == "__main__":
     for i in range(num_episodes):
         episode_rewards = agent.run_episode()
 #         print("Episode rewards:", episode_rewards)
-#         print("TOTAL:", sum(episode_rewards))
+        print("TOTAL:", sum(episode_rewards))
         returns.append(sum(episode_rewards))
         ep_lens.append(len(episode_rewards))
         

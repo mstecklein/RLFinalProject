@@ -1,5 +1,4 @@
 from environment import Environment_v0
-from dqn_agent import DQNAgent
 from environment import Environment_v1, SENSOR_STATUSES, LOCATED_SOURCES, SENSOR_COVERAGES, SENSOR_OBSERVATIONS
 from always_on_agent import AlwaysOnAgent
 import torch
@@ -261,15 +260,78 @@ class HandCraftedFeatureVector(FeatureVector):
         snsr_num, turn_on = self.env.get_action_info(action)
         # num sensors on
         num_snsr_on = state_summarized["numsensorson"]
-        x[5] = num_snsr_on
+        x[3] = num_snsr_on
         if not action is self.env.NO_OP_ACTION:
             if turn_on:
-                x[5] += 1
+                x[3] += 1
             else:
-                x[5] -= 1
+                x[3] -= 1
         # num of sources found  x  num of sensors on
         num_srcs_on = state_summarized["numsourcesfound"]
-        x[6] = num_srcs_on * x[5]
+        x[4] = num_srcs_on * x[3]
         return x / self._scaling_factors
 
 
+
+
+
+
+
+
+
+
+class DotProductModel9(nn.Module):
+    
+    def __init__(self, length, smart_init=True):
+        super().__init__()
+        assert(length == 9)
+        if smart_init:
+            self.weights = torch.nn.Parameter(torch.tensor([ 
+                10.59154438,
+                6.49373517,
+                6.33886868,
+                46.2918886,
+                -204.60743457,
+                54.47196403,
+                49.93853715,
+                -18.88485571,
+                -26.46835565
+            ], requires_grad=True))
+        else:
+            self.weights = torch.nn.Parameter(torch.rand(9), requires_grad=True)
+        
+    
+    def forward(self, X):
+        X_tnsr = torch.from_numpy(X).float()
+        return torch.dot(X_tnsr, self.weights)
+
+
+
+
+class Q_HandCraftedFeatureVector(HandCraftedFeatureVector):
+    
+    def __init__(self, env:Environment_v0):
+        super().__init__(env)
+        self.model = DotProductModel9(self.get_feature_vector_len())
+        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+    
+    def get_all_action_values(self, state):
+        act_vals = []
+        for x in self.get_all_feature_vectors(state):
+            act_val = self.model(x).detach().numpy()
+            act_vals.append(act_val)
+        return np.array(act_vals)
+    
+    def update(self, state, target, action):
+        self.optimizer.zero_grad()
+        target_tnsr = torch.Tensor([target]).squeeze()
+        feature_vec = self(state, action)
+        predicted_tnsr = self.model(feature_vec)
+        loss = self.criterion(predicted_tnsr, target_tnsr)
+        loss.backward()
+        self.optimizer.step()
+    
+    
+    
+    
