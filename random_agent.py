@@ -24,7 +24,7 @@ class RandomAgent(Agent):
         done = False
         rewards = []
         env.reset()
-        video_recorder = VideoRecorder(self.env, path="/Users/aravind/RLFinalProject/gym_%s_run.mp4"%self.get_name())
+        video_recorder = VideoRecorder(self.env, path="/tmp/gym_%s_run.mp4"%self.get_name())
         video_recorder.capture_frame()
         while not done:
             action = randint(0, self.num_actions - 1)
