@@ -1,6 +1,6 @@
 from agent import Agent
 from environment import Environment_v0, Environment_v1, SENSOR_STATUSES, LOCATED_SOURCES, SENSOR_COVERAGES
-from handcrafted_features import DotProductModel9, Q_HandCraftedFeatureVector
+from handcrafted_features import DotProductModel, Q_FeatureVector, FeatureVector, HandCraftedFeatureVector
 from collections import deque
 import gym
 import numpy as np
@@ -16,7 +16,7 @@ from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 
 
-class SoftmaxDotProductModel9(DotProductModel9):
+class SoftmaxDotProductModel(DotProductModel):
     
     def __init__(self, length):
         super().__init__(length, smart_init=False)
@@ -32,12 +32,13 @@ class SoftmaxDotProductModel9(DotProductModel9):
 
 
 
-class Pi_HandCraftedFeatureVector(Q_HandCraftedFeatureVector):
+class Pi_HandCraftedFeatureVector(Q_FeatureVector):
     
-    def __init__(self, env:Environment_v0, lr=0.001, epsilon=0.):
-        super().__init__(env)
+    def __init__(self, feat_vec: FeatureVector, lr=0.001, epsilon=0.):
+        super().__init__(feat_vec)
         self.epsilon = epsilon
-        self.model = SoftmaxDotProductModel9(self.get_feature_vector_len())
+        self.env = feat_vec.env
+        self.model = SoftmaxDotProductModel(self.feat_vec.get_feature_vector_len())
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         
     def get_action_probs(self, state):
@@ -45,7 +46,7 @@ class Pi_HandCraftedFeatureVector(Q_HandCraftedFeatureVector):
             num_actions = self.env.action_space.n
             action_probs = np.ones(num_actions) / num_actions
         else:
-            action_probs = self.model(self.get_all_feature_vectors(state)).detach().numpy()
+            action_probs = self.model(self.feat_vec.get_all_feature_vectors(state)).detach().numpy()
         return self._renormalize_valid_actions(action_probs)
     
     def _renormalize_valid_actions(self, all_action_probs):
@@ -60,7 +61,7 @@ class Pi_HandCraftedFeatureVector(Q_HandCraftedFeatureVector):
     def update(self, state, action, G):
         self.optimizer.zero_grad()
         action_tnsr = torch.FloatTensor([action])
-        probs_tnsr = self.model(self.get_all_feature_vectors(state))
+        probs_tnsr = self.model(self.feat_vec.get_all_feature_vectors(state))
         m = Categorical(probs_tnsr)
         loss = -m.log_prob(action_tnsr) * G
         loss.backward()
@@ -79,6 +80,7 @@ class ReinforceAgent(Agent):
     
     def __init__(self,
                  env: gym.Env,
+                 feat_vec: FeatureVector,
                  gamma: float = 1.,
                  save_path: str = "./data/models/",
                  name: str = "REINFORCE",
@@ -93,7 +95,7 @@ class ReinforceAgent(Agent):
         self._debug = debug
         self.episode_num = 0
         self.epsilon = epsilon
-        self.pi = Pi_HandCraftedFeatureVector(env, lr=lr, epsilon=epsilon)
+        self.pi = Pi_HandCraftedFeatureVector(feat_vec, lr=lr, epsilon=epsilon)
         self._previously_saved_w = None
 
 
@@ -187,9 +189,11 @@ class ReinforceAgent(Agent):
             if self._debug:
                 print("Loaded model state dict:", self.pi.model.state_dict())
                 print("\tfrom path ", self.get_model_filename())
+            print("LOADED:", self.get_model_filename())
         except FileNotFoundError:
-            print("Did not load a model")
-            print("\tcurrent w is:", self.pi.model.weights.detach().numpy())
+            if self._debug:
+                print("Did not load a model")
+                print("\tcurrent w is:", self.pi.model.weights.detach().numpy())
     
                 
     def get_model_filename(self):
@@ -202,18 +206,6 @@ class ReinforceAgent(Agent):
 
 
 if __name__ == '__main__':
-    env = Environment_v1(debug=False)
-    agent = ReinforceAgent(env, debug=True, lr=0.001,
-                        epsilon=0.5
-            )
+    env = Environment_v1()
+    agent = ReinforceAgent(env, HandCraftedFeatureVector(env), lr=0.001, epsilon=0.5)
     agent.train(10000)
- 
-    env._debug = False
-    returns = []
-    num_eps = 100
-    for i in range(num_eps):
-        ep_rewards = agent.run_episode(False)
-        print("TOTAL:", sum(ep_rewards))
-        returns.append(sum(ep_rewards))
-    print("ReinforceAgent, %d episodes:" % num_eps)
-    print("Return:    mean:%.2f    std:%.2f" % (np.mean(returns), np.std(returns)))   

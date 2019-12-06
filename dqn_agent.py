@@ -7,12 +7,12 @@ import torch
 from torch import nn
 import torch.optim as optim
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
-from handcrafted_features import  Q_HandCraftedFeatureVector
+from handcrafted_features import  Q_FeatureVector, HandCraftedFeatureVector
 
 
 
 
-class DQNAgent(Agent):
+class DQNAgentAbstract(Agent):
     """
         https://www.cs.toronto.edu/~vmnih/docs/dqn.pdf
     """
@@ -27,7 +27,6 @@ class DQNAgent(Agent):
                  name: str = "DQN",
                  minibatch_size: int = 32,
                  max_mem_len: int = 100000,
-                 num_training_episodes: int = 1000,
                  skip_validation:bool = False,
                  debug:bool = False):
         super().__init__(env)
@@ -39,7 +38,6 @@ class DQNAgent(Agent):
         self._name = name
         self._minibatch_size = minibatch_size
         self._max_mem_len = max_mem_len
-        self._num_training_episodes = num_training_episodes
         self._skip_validation = skip_validation
         self._debug = debug
         self.episode_num = 0
@@ -49,13 +47,13 @@ class DQNAgent(Agent):
         return self._name
     
     
-    def run_episode(self):
+    def run_episode(self, record=False):
         self.load()
         rewards = []
         raw_state = self.env.reset()
         state = self.summarize_history(raw_state)
         done = False
-        if self._debug:
+        if self._debug and record:
             video_recorder = VideoRecorder(self.env, path="/tmp/gym_%s_run.mp4"%self.get_name())
             video_recorder.capture_frame()
         while not done:
@@ -65,14 +63,14 @@ class DQNAgent(Agent):
             next_state = self.summarize_history(raw_next_state, info)
             rewards.append(R)
             state = next_state
-            if self._debug:
+            if self._debug and record:
                 video_recorder.capture_frame()
-        if self._debug:
+        if self._debug and record:
             video_recorder.close()
         return rewards
     
     
-    def train(self, printout_statuses=True):
+    def train(self, num_episodes, printout_statuses=True):
         save_freq = 10
         printout_statuses |= self._debug
         if printout_statuses:
@@ -84,7 +82,7 @@ class DQNAgent(Agent):
             debug_start_t = time.time()
         replay_memory = deque(maxlen=self._max_mem_len)
         self.load()
-        while self.episode_num < self._num_training_episodes:
+        for _ in range(num_episodes):
             raw_state = self.env.reset()
             state = self.summarize_history(raw_state)
             done = False
@@ -166,91 +164,6 @@ class DQNAgent(Agent):
         # Given the raw state from the environment and the info dictionary,
         # summarize the history of the current state with some heuristic.
         raise NotImplementedError()
-
-
-
-
-
-
-
-
-
-
-
-class SimpleDQNAgent(DQNAgent):
-    """
-        Only looks at first two components of the state space:
-         - SENSOR_STATUSES
-         - LOCATED_SOURCES
-        And uses a regular NN for the action value function Q.
-    """
-    
-    def __init__(self, env, **args):
-        args["name"] = "SimpleDQN"
-        super().__init__(env, **args)
-        
-        self._input_len = env.observation_space.spaces[SENSOR_STATUSES].n + \
-                          env.observation_space.spaces[LOCATED_SOURCES].n
-        
-        self.model = nn.Sequential(
-                    nn.Linear(self._input_len, 100),
-                    nn.ReLU(),
-                    nn.Linear(100, 100),
-                    nn.ReLU(),
-                    nn.Linear(100, self.env.action_space.n)) 
-        self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(),
-                                     lr=0.0001,
-                                     betas=(0.9, 0.999))
-    
-    def Q(self, s):
-        self.model.eval()
-        input = torch.FloatTensor(self._flatten_state(s))
-        output = self.model(input)
-        return output.detach().numpy()
-    
-    
-    def _flatten_state(self, s):
-        return np.concatenate((
-            s[SENSOR_STATUSES].flatten(),
-            s[LOCATED_SOURCES].flatten()
-        ))
-    
-    
-    def update(self, state, target, action):
-        self.optimizer.zero_grad()
-        target_all_actions = self.Q(state)
-        target_all_actions[action] = target
-        target_tnsr = torch.Tensor([target_all_actions]).squeeze()
-        predicted_tnsr = self.model(torch.FloatTensor(self._flatten_state(state)))
-        loss = self.criterion(predicted_tnsr, target_tnsr)
-        loss.backward()
-        self.optimizer.step()
-    
-    
-    def save(self):
-        torch.save({
-            'episode_num' : self.episode_num,
-            'model_state_dict' : self.model.state_dict(),
-            'optimizer_state_dict' : self.optimizer.state_dict(),
-            'epsilon' : self.epsilon
-        }, self.get_model_filename())
-    
-    
-    def load(self):
-        try:
-            checkpoint = torch.load(self.get_model_filename())
-            self.episode_num = checkpoint['episode_num']
-            self.model.load_state_dict(checkpoint['model_state_dict'])
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            self.epsilon = checkpoint['epsilon']
-        except FileNotFoundError:
-            pass
-    
-    
-    def summarize_history(self, raw_state, info=None):
-        del raw_state[SENSOR_COVERAGES]
-        return raw_state
     
     
     
@@ -264,10 +177,11 @@ class SimpleDQNAgent(DQNAgent):
 
 
 
-class HandCraftedDQNAgent(DQNAgent):
+class DQNAgent(DQNAgentAbstract):
     
-    def __init__(self, env, Qfunc: Q_HandCraftedFeatureVector, **args):
-        args["name"] = "HandCraftedDQN"
+    def __init__(self, env, Qfunc: Q_FeatureVector, **args):
+        if not "name" in args:
+            args["name"] = "DQN"
         super().__init__(env, **args)
         self.Qfunc = Qfunc
     
@@ -302,6 +216,7 @@ class HandCraftedDQNAgent(DQNAgent):
             self.Qfunc.model.load_state_dict(checkpoint['model_state_dict'])
             self.Qfunc.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             self.epsilon = checkpoint['epsilon']
+            print("LOADED:", self.get_model_filename())
         except FileNotFoundError:
             pass
     
@@ -325,9 +240,5 @@ class HandCraftedDQNAgent(DQNAgent):
 
 if __name__ == "__main__":
     env = Environment_v1()
-    agent = HandCraftedDQNAgent(env, Q_HandCraftedFeatureVector(env),
-                        num_training_episodes=2000, debug=True)
-#     agent.train(1000)
-    for _ in range(10):
-        rs = agent.run_episode()
-        print("return: ", sum(rs))
+    agent = DQNAgent(env, Q_FeatureVector(HandCraftedFeatureVector(env)))
+    agent.train(1000)

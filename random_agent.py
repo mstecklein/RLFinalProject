@@ -21,7 +21,7 @@ class RandomAgent(Agent):
     def run_episode(self):
         done = False
         rewards = []
-        env.reset()
+        self.env.reset()
 
         while not done:
             action = randint(0, self.num_actions - 1)
@@ -44,6 +44,6 @@ if __name__ == '__main__':
         returns.append(sum(episode_rewards))
         ep_lens.append(len(episode_rewards))
         
-    print("AlwaysOnAgent, %d episodes:" % num_episodes)
+    print("RandomAgent, %d episodes:" % num_episodes)
     print("Return:    mean:%.2f   std:%.2f" % (np.mean(returns), np.std(returns)))
     print("Length:    mean:%.2f   std:%.2f" % (np.mean(ep_lens), np.std(ep_lens)))

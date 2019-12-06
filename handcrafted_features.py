@@ -39,13 +39,13 @@ class FeatureVector:
 
 
 
-class BasicFeatureVector(FeatureVector):
+class MinimalFeatureVector(FeatureVector):
     
     def __init__(self, env:Environment_v0):
         self.env = env
     
     def get_feature_vector_len(self):
-        return self.env.action_space.n + self.env._num_sensors
+        return self.env._hidden_state[SENSOR_STATUSES].size + self.env._hidden_state[LOCATED_SOURCES].size
     
     def parse_new_state_info(self, raw_state, info):
         # Parses environment info into raw state. Returns parsed state.
@@ -55,15 +55,15 @@ class BasicFeatureVector(FeatureVector):
     def __call__(self, parsed_state, action):
         # Returns feature vector X(s,a)
         # 'state' must be a previously parsed state from parse_new_state_info().
-        sensor_state = state[SENSOR_STATUSES]
-        located_state = state[LOCATED_SOURCES].flatten()
+        sensor_state = parsed_state[SENSOR_STATUSES]
+        located_state = parsed_state[LOCATED_SOURCES].flatten()
         return np.concatenate((sensor_state, located_state))
     
     def get_all_feature_vectors(self, parsed_state):
         # Returns array of all feature vectors X(s,a) for all 'a'
         # 'state' must be a previously parsed state from parse_new_state_info().
         x = [self(parsed_state, None)]
-        return x * self.get_feature_vector_len()
+        return x * self.env.action_space.n
 
 
 
@@ -280,12 +280,11 @@ class HandCraftedFeatureVector(FeatureVector):
 
 
 
-class DotProductModel9(nn.Module):
+class DotProductModel(nn.Module):
     
     def __init__(self, length, smart_init=True):
         super().__init__()
-        assert(length == 9)
-        if smart_init:
+        if smart_init and length == 9:
             self.weights = torch.nn.Parameter(torch.tensor([ 
                 10.59154438,
                 6.49373517,
@@ -298,7 +297,7 @@ class DotProductModel9(nn.Module):
                 -26.46835565
             ], requires_grad=True))
         else:
-            self.weights = torch.nn.Parameter(torch.rand(9), requires_grad=True)
+            self.weights = torch.nn.Parameter(torch.rand(length), requires_grad=True)
         
     
     def forward(self, X):
@@ -308,17 +307,17 @@ class DotProductModel9(nn.Module):
 
 
 
-class Q_HandCraftedFeatureVector(HandCraftedFeatureVector):
+class Q_FeatureVector:
     
-    def __init__(self, env:Environment_v0):
-        super().__init__(env)
-        self.model = DotProductModel9(self.get_feature_vector_len())
+    def __init__(self, feat_vec: FeatureVector):
+        self.feat_vec = feat_vec
+        self.model = DotProductModel(self.feat_vec.get_feature_vector_len())
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
     
     def get_all_action_values(self, state):
         act_vals = []
-        for x in self.get_all_feature_vectors(state):
+        for x in self.feat_vec.get_all_feature_vectors(state):
             act_val = self.model(x).detach().numpy()
             act_vals.append(act_val)
         return np.array(act_vals)
@@ -326,11 +325,14 @@ class Q_HandCraftedFeatureVector(HandCraftedFeatureVector):
     def update(self, state, target, action):
         self.optimizer.zero_grad()
         target_tnsr = torch.Tensor([target]).squeeze()
-        feature_vec = self(state, action)
+        feature_vec = self.feat_vec(state, action)
         predicted_tnsr = self.model(feature_vec)
         loss = self.criterion(predicted_tnsr, target_tnsr)
         loss.backward()
         self.optimizer.step()
+    
+    def parse_new_state_info(self, raw_state, info):
+        return self.feat_vec.parse_new_state_info(raw_state, info)
     
     
     

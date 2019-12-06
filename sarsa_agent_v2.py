@@ -23,6 +23,7 @@ class SarsaAgentV2(Agent):
             epsilon: float = 1.,
             epsilon_decay: float = 0.999,
             min_epsilon: float = .01,
+            name: str = "SARSA",
             debug: bool = False
     ):
         super().__init__(env)
@@ -39,9 +40,13 @@ class SarsaAgentV2(Agent):
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.min_epsilon = min_epsilon
+        self.name = name
         self.episode_num = 0
         self._debug = debug
         self._previously_saved_w = None
+
+    def get_name(self):
+        return self.name
 
     def train(self, num_episodes: int):
         
@@ -52,7 +57,7 @@ class SarsaAgentV2(Agent):
             if self.episode_num % 100 == 0 and self._debug:
                 print('Episode #{}'.format(self.episode_num))
 
-            raw_state = env.reset()
+            raw_state = self.env.reset()
             state = self.X.parse_new_state_info(raw_state, None)
             z = np.zeros(self.X.get_feature_vector_len())
             action = self.get_action(self.w, state, self.epsilon)
@@ -61,9 +66,9 @@ class SarsaAgentV2(Agent):
 
             done = False
             while not done:
-                raw_next_state, reward, done, info = env.step(action)
+                raw_next_state, reward, done, info = self.env.step(action)
                 next_state = self.X.parse_new_state_info(raw_next_state, info)
-                # env.render()
+                # self.env.render()
                 next_action = self.get_action(self.w, next_state, self.epsilon)
                 next_x = self.X(next_state, next_action)
                 Q = np.dot(self.w, x)
@@ -90,7 +95,7 @@ class SarsaAgentV2(Agent):
             epsilon: float,  # eplison greedy value
     ) -> int:
 
-        if np.random.rand() < self.epsilon:
+        if np.random.rand() < epsilon:
             return np.random.randint(0, self.num_actions)
 
         valid_actions = self._get_all_valid_actions(state[SENSOR_STATUSES])
@@ -127,14 +132,14 @@ class SarsaAgentV2(Agent):
         state = self.X.parse_new_state_info(raw_state, None)
         done = False
         if self._debug and render:
-            video_recorder = VideoRecorder(self.env, path="/tmp/gym_%s_run.mp4"%self.get_model_filename())
+            video_recorder = VideoRecorder(self.env, path="/tmp/gym_%s_run.mp4"%self.get_name())
             video_recorder.capture_frame()
         while not done:
             # Use a greedy policy with the values learnt from training
             a = self.get_action(self.w, state, 0.)
             raw_next_state, reward, done, info = self.env.step(a)
             if self._debug and render:
-                env.render()
+                self.env.render()
             next_state = self.X.parse_new_state_info(raw_next_state, info)
             rewards.append(reward)
             state = next_state
@@ -145,17 +150,13 @@ class SarsaAgentV2(Agent):
         return rewards
     
     
-    def get_model_filename(self):
-        return "SarsaAgentV2"
-    
-    
     def save(self):
         # Saves Q function state
         torch.save({
             'episode_num' : self.episode_num,
             'epsilon' : self.epsilon,
             'w' : self.w
-        }, "./data/models/" + self.get_model_filename() + ".model")
+        }, "./data/models/" + self.get_name() + ".model")
         if self._debug:
             if not self._previously_saved_w is None:
                 print("\t\t\t\t\t\t max diff in w since last save:", np.max(np.abs(self.w-self._previously_saved_w)))
@@ -167,13 +168,14 @@ class SarsaAgentV2(Agent):
     def load(self):
         # Loads Q function state
         try:
-            checkpoint = torch.load("./data/models/" + self.get_model_filename() + ".model")
+            checkpoint = torch.load("./data/models/" + self.get_name() + ".model")
             self.episode_num = checkpoint['episode_num']
             self.epsilon = checkpoint['epsilon']
             self.w = checkpoint['w']
             if self._debug:
                 print("Loaded w:", self.w)
                 print("Loaded epsilon:", self.epsilon)
+            print("LOADED:", "./data/models/" + self.get_name() + ".model")
         except FileNotFoundError:
             if self._debug:
                 print("Did not load a model.")
@@ -186,16 +188,6 @@ class SarsaAgentV2(Agent):
 
 
 if __name__ == '__main__':
-    env = Environment_v1(debug=False)
-    agent = SarsaAgentV2(env, HandCraftedFeatureVector(env), debug=True)#, epsilon=.5, epsilon_decay=1.)
-    agent.train(20000)
- 
-    env._debug = False
-    returns = []
-    num_eps = 100
-    for i in range(num_eps):
-        ep_rewards = agent.run_episode(False)
-        print("TOTAL:", sum(ep_rewards))
-        returns.append(sum(ep_rewards))
-    print("SarsaAgentV2, %d episodes:" % num_eps)
-    print("Return:    mean:%.2f    std:%.2f" % (np.mean(returns), np.std(returns)))
+    env = Environment_v1()
+    agent = SarsaAgentV2(env, HandCraftedFeatureVector(env), epsilon=.5, epsilon_decay=1.)
+    agent.train(10000)
